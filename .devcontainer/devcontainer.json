@@ -1,0 +1,15 @@
+{
+  "name": "Ourlet : ta boutique",
+  "image": "mcr.microsoft.com/devcontainers/java:21",
+  "hostRequirements": { "cpus": 2 },
+  "postCreateCommand": "chmod +x ouvrir boutique/mvnw && cd boutique && (./mvnw -B -q quarkus:go-offline || true) && ./mvnw -B -q -DskipTests package",
+  "forwardPorts": [8080, 8090],
+  "portsAttributes": {
+    "8080": { "label": "Ta boutique", "onAutoForward": "silent" },
+    "8090": { "label": "Ma boutique, ta page", "onAutoForward": "notify" }
+  },
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md"] },
+    "vscode": { "extensions": ["redhat.java"] }
+  }
+}

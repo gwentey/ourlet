@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Ouvre ta boutique Ourlet : elle démarre, le robot lui envoie des clients et raconte tout au centre.
+set -u
+cd "$(dirname "$0")"
+mkdir -p .ourlet
+BOUTIQUE_PORT="${BOUTIQUE_PORT:-8080}"
+ROBOT_PORT="${ROBOT_PORT:-8090}"
+# L’adresse du centre est publiée par l’enseignant dans ce dépôt, fichier centre.txt.
+SOURCE_CENTRE="https://raw.githubusercontent.com/gwentey/ourlet/main/centre.txt"
+CENTRE="$(curl -fsS --max-time 5 "$SOURCE_CENTRE" 2>/dev/null | head -1 | tr -d '\r')"
+[ -z "$CENTRE" ] && CENTRE="${CENTRE_OURLET:-$(head -1 centre.txt | tr -d '\r')}"
+
+# 1. Ta boutique
+if curl -s -o /dev/null --max-time 2 "http://localhost:$BOUTIQUE_PORT/"; then
+  echo "Ta boutique tourne déjà sur le port $BOUTIQUE_PORT."
+else
+  echo "Démarrage de ta boutique. La première fois, compte une minute…"
+  # le serveur tourne en arrière-plan, sans toucher au terminal
+  ( cd boutique; nohup ./mvnw -B -q quarkus:dev -Ddebug=false -Dquarkus.analytics.disabled=true -Dquarkus.http.port="$BOUTIQUE_PORT" < /dev/null > ../.ourlet/boutique.log 2>&1 & )
+  for i in $(seq 1 240); do curl -s -o /dev/null --max-time 2 "http://localhost:$BOUTIQUE_PORT/" && break; sleep 1; done
+  if ! curl -s -o /dev/null --max-time 2 "http://localhost:$BOUTIQUE_PORT/"; then
+    echo "Ta boutique ne démarre pas. Voici la fin du journal :"; tail -25 .ourlet/boutique.log; exit 1
+  fi
+  echo "Ta boutique est en ligne."
+fi
+
+# 2. Le robot, avec le nom de ta boutique
+pkill -f "robot/Robot.java.*--port $ROBOT_PORT" >/dev/null 2>&1 && sleep 1
+while true; do
+  if [ -s .ourlet/nom ]; then NOM="$(cat .ourlet/nom)"; else
+    read -r -p "Nom de ta boutique (sans accents, 20 caractères au plus) : " NOM
+    if ! [[ "$NOM" =~ ^[A-Za-z0-9\ \'-]{2,20}$ ]]; then echo "Nom refusé : 2 à 20 caractères, lettres sans accents, chiffres, espaces, apostrophes ou tirets."; continue; fi
+  fi
+  nohup java -Dstdout.encoding=UTF-8 -Drobot.dir=robot robot/Robot.java --nom "$NOM" --centre "$CENTRE" --boutique "http://localhost:$BOUTIQUE_PORT" --port "$ROBOT_PORT" < /dev/null > .ourlet/robot.log 2>&1 &
+  PID=$!
+  for i in $(seq 1 20); do grep -q "Robot prêt" .ourlet/robot.log 2>/dev/null && break; kill -0 $PID 2>/dev/null || break; sleep 0.5; done
+  if grep -q "Robot prêt" .ourlet/robot.log; then echo "$NOM" > .ourlet/nom; break; fi
+  grep -v JAVA_TOOL .ourlet/robot.log | tail -3; rm -f .ourlet/nom
+done
+grep -q "Le centre ne répond pas" .ourlet/robot.log && grep "Le centre ne répond pas" .ourlet/robot.log
+
+# 3. Ta page Ma boutique
+if [ -n "${CODESPACE_NAME:-}" ]; then PAGE="https://${CODESPACE_NAME}-${ROBOT_PORT}.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}/"; else PAGE="http://localhost:${ROBOT_PORT}/"; fi
+echo
+echo "« $NOM » est ouverte. Ta page Ma boutique : $PAGE"
+[ -n "${BROWSER:-}" ] && "$BROWSER" "$PAGE" >/dev/null 2>&1 &
+exit 0
